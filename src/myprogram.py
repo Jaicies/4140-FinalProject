@@ -3,7 +3,15 @@ import os
 import string
 import random
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
-
+import numpy as np
+import pandas as pd
+from keras.utils import to_categorical
+from keras.preprocessing.sequence import pad_sequences
+from keras.models import Sequential
+from keras.layers import LSTM, Dense, GRU, Embedding
+from keras.callbacks import EarlyStopping, ModelCheckpoint
+import re
+from sklearn.model_selection import train_test_split
 
 class MyModel:
     """
@@ -11,10 +19,26 @@ class MyModel:
     """
 
     @classmethod
-    def load_training_data(cls):
-        # your code here
-        # this particular model doesn't train
-        return []
+    def load_training_data(cls,fname):
+
+        data = []
+        with open(fname) as f:
+            for line in f:
+                inp = line[:-1]  # the last character is a newline
+                data.append(inp)
+
+        newString = data.lower()
+        newString = re.sub(r"'s\b","",newString)
+        # remove punctuations
+        newString = re.sub("[^a-zA-Z]", " ", newString) 
+        long_words=[]
+        # remove short word
+        for i in newString.split():
+            if len(i)>=3:                  
+                long_words.append(i)
+        data_new = (" ".join(long_words)).strip()
+        return data_new
+
 
     @classmethod
     def load_test_data(cls, fname):
@@ -33,18 +57,73 @@ class MyModel:
                 f.write('{}\n'.format(p))
 
     def run_train(self, data, work_dir):
-        # your code here
-        pass
+
+        length = 30
+        sequences = list()
+        for i in range(length, len(data)):
+            # select sequence of tokens
+            seq = data[i-length:i+1]
+            # store
+            sequences.append(seq)
+        print('Total Sequences: %d' % len(sequences))
+        
+        chars = sorted(list(set(data)))
+        mapping = dict((c, i) for i, c in enumerate(chars))
+
+        new_seq = list()
+        for line in sequences:
+            # integer encode line
+            encoded_seq = [mapping[char] for char in line]
+            # store
+            new_seq.append(encoded_seq)
+
+        vocab = len(mapping)
+        new_seq = np.array(new_seq)
+        # create X and y
+        X, y = new_seq[:,:-1], new_seq[:,-1]
+        # one hot encode y
+        y = to_categorical(y, num_classes=vocab)
+        # create train and validation sets
+        X_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.1, random_state=42)
+
+        print('Train shape:', X_tr.shape, 'Val shape:', X_val.shape)
+                
+        model = Sequential()
+        model.add(Embedding(vocab, 50, input_length=30, trainable=True))
+        model.add(GRU(150, recurrent_dropout=0.1, dropout=0.1))
+        model.add(Dense(vocab, activation='softmax'))
+        print(model.summary())
+
+        # compile the model
+        model.compile(loss='categorical_crossentropy', metrics=['acc'], optimizer='adam')
+        # fit the model
+        model.fit(X_tr, y_tr, epochs=100, verbose=2, validation_data=(X_val, y_val))
+
+        return mapping
+        
+
 
     def run_pred(self, data):
-        # your code here
-        preds = []
-        all_chars = string.ascii_letters
-        for inp in data:
-            # this model just predicts a random character each time
-            top_guesses = [random.choice(all_chars) for _ in range(3)]
-            preds.append(''.join(top_guesses))
-        return preds
+
+        seq_length = len(data)
+        in_text = data
+	# generate a fixed number of characters
+        for _ in range(3):
+            # encode the characters as integers
+            encoded = [mapping[char] for char in in_text]
+            # truncate sequences to a fixed length
+            encoded = pad_sequences([encoded], maxlen=seq_length, truncating='pre')
+            # predict character
+            yhat = model.predict_classes(encoded, verbose=0)
+            # reverse map integer to character
+            out_char = ''
+            for char, index in mapping.items():
+                if index == yhat:
+                    out_char = char
+                    break
+            # append to input
+            in_text += char
+        return in_text
 
     def save(self, work_dir):
         # your code here
@@ -65,6 +144,7 @@ if __name__ == '__main__':
     parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
     parser.add_argument('mode', choices=('train', 'test'), help='what to run')
     parser.add_argument('--work_dir', help='where to save', default='work')
+    parser.add_argument('--train_data', help='path to train data', default='example/train.txt')
     parser.add_argument('--test_data', help='path to test data', default='example/input.txt')
     parser.add_argument('--test_output', help='path to write test predictions', default='pred.txt')
     args = parser.parse_args()
@@ -78,9 +158,9 @@ if __name__ == '__main__':
         print('Instatiating model')
         model = MyModel()
         print('Loading training data')
-        train_data = MyModel.load_training_data()
+        train_data = MyModel.load_training_data(args.train_data)
         print('Training')
-        model.run_train(train_data, args.work_dir)
+        mapping = model.run_train(train_data, args.work_dir)
         print('Saving model')
         model.save(args.work_dir)
     elif args.mode == 'test':
