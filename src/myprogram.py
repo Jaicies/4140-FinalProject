@@ -5,7 +5,7 @@ import random
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 import numpy as np
 import pandas as pd
-from keras.utils import to_categorical
+from tensorflow.keras.utils import to_categorical
 from keras.preprocessing.sequence import pad_sequences
 from keras.models import Sequential
 from keras.layers import LSTM, Dense, GRU, Embedding
@@ -21,22 +21,26 @@ class MyModel:
     @classmethod
     def load_training_data(cls,fname):
 
-        data = []
-        with open(fname) as f:
-            for line in f:
-                inp = line[:-1]  # the last character is a newline
-                data.append(inp)
+      #  data = []
+       # with open(fname) as f:
+        #    for line in f:
+         #       inp = line[:-1]  # the last character is a newline
+          #      data.append(inp)
+        text_file = open(fname)
+        data = text_file.read()
+        text_file.close()
 
         newString = data.lower()
         newString = re.sub(r"'s\b","",newString)
         # remove punctuations
         newString = re.sub("[^a-zA-Z]", " ", newString) 
         long_words=[]
-        # remove short word
+        # remove short words
         for i in newString.split():
             if len(i)>=3:                  
                 long_words.append(i)
         data_new = (" ".join(long_words)).strip()
+        #print("new data: " + data_new)
         return data_new
 
 
@@ -86,22 +90,21 @@ class MyModel:
         # create train and validation sets
         X_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.1, random_state=42)
 
-        print('Train shape:', X_tr.shape, 'Val shape:', X_val.shape)
+        #print('Train shape:', X_tr.shape, 'Val shape:', X_val.shape)
                 
         model = Sequential()
         model.add(Embedding(vocab, 50, input_length=30, trainable=True))
         model.add(GRU(150, recurrent_dropout=0.1, dropout=0.1))
         model.add(Dense(vocab, activation='softmax'))
-        print(model.summary())
+        #print(model.summary())
 
         # compile the model
         model.compile(loss='categorical_crossentropy', metrics=['acc'], optimizer='adam')
         # fit the model
-        model.fit(X_tr, y_tr, epochs=100, verbose=2, validation_data=(X_val, y_val))
+        model.fit(X_tr, y_tr, epochs=3, verbose=2, validation_data=(X_val, y_val))
 
-        return mapping
+        return mapping,model
         
-
 
     def run_pred(self, data):
 
@@ -109,27 +112,31 @@ class MyModel:
         in_text = data
 	# generate a fixed number of characters
         for _ in range(3):
+            
             # encode the characters as integers
             encoded = [mapping[char] for char in in_text]
             # truncate sequences to a fixed length
             encoded = pad_sequences([encoded], maxlen=seq_length, truncating='pre')
             # predict character
-            yhat = model.predict_classes(encoded, verbose=0)
+            yhat = myModel.model.predict_classes(encoded, verbose=0)
             # reverse map integer to character
             out_char = ''
             for char, index in mapping.items():
                 if index == yhat:
                     out_char = char
                     break
-            # append to input
-            in_text += char
-        return in_text
+            # append to output
+            preds += char
+            # probably : in_text += out_char
+        return preds
 
     def save(self, work_dir):
         # your code here
         # this particular model has nothing to save, but for demonstration purposes we will save a blank file
         with open(os.path.join(work_dir, 'model.checkpoint'), 'wt') as f:
-            f.write('dummy save')
+            model.summary(print_fn=lambda x: f.write(x + '\n'))
+
+        
 
     @classmethod
     def load(cls, work_dir):
@@ -156,22 +163,24 @@ if __name__ == '__main__':
             print('Making working directory {}'.format(args.work_dir))
             os.makedirs(args.work_dir)
         print('Instatiating model')
-        model = MyModel()
+        myModel = MyModel()
         print('Loading training data')
         train_data = MyModel.load_training_data(args.train_data)
         print('Training')
-        mapping = model.run_train(train_data, args.work_dir)
+        holder = myModel.run_train(train_data, args.work_dir)
+        mapping = holder[0]
+        model = holder[1]
         print('Saving model')
-        model.save(args.work_dir)
+        myModel.save(args.work_dir)
     elif args.mode == 'test':
         print('Loading model')
-        model = MyModel.load(args.work_dir)
+        myModel = MyModel.load(args.work_dir)
         print('Loading test data from {}'.format(args.test_data))
         test_data = MyModel.load_test_data(args.test_data)
         print('Making predictions')
-        pred = model.run_pred(test_data)
+        pred = myModel.run_pred(test_data)
         print('Writing predictions to {}'.format(args.test_output))
         assert len(pred) == len(test_data), 'Expected {} predictions but got {}'.format(len(test_data), len(pred))
-        model.write_pred(pred, args.test_output)
+        myModel.write_pred(pred, args.test_output)
     else:
         raise NotImplementedError('Unknown mode {}'.format(args.mode))
