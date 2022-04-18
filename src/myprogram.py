@@ -28,6 +28,7 @@ class MyModel:
          #       inp = line[:-1]  # the last character is a newline
           #      data.append(inp)
         text_file = open(fname)
+        
         data = text_file.read()
         text_file.close()
 
@@ -52,7 +53,7 @@ class MyModel:
         with open(fname) as f:
             for line in f:
                 inp = line[:-1]  # the last character is a newline
-                data.append(inp)
+                data.append(inp.lower())
         return data
 
     @classmethod
@@ -108,18 +109,22 @@ class MyModel:
         
 
     def run_pred(self, data):
+        out_pred = []
 
-        seq_length = len(data)
-        in_text = data
-	# generate a fixed number of characters
+        for sentence in data:
+            seq_length = len(sentence)
+            in_text = sentence
+    # generate a fixed number of characters
         for _ in range(3):
-            
+
             # encode the characters as integers
             encoded = [mapping[char] for char in in_text]
             # truncate sequences to a fixed length
             encoded = pad_sequences([encoded], maxlen=seq_length, truncating='pre')
             # predict character
-            yhat = model.predict_classes(encoded, verbose=0)
+            
+            predict_x=model.predict(encoded) 
+            yhat=np.argmax(predict_x,verbose=0)
             # reverse map integer to character
             out_char = ''
             for char, index in mapping.items():
@@ -129,7 +134,8 @@ class MyModel:
             # append to output
             preds += char
             # probably : in_text += out_char
-        return preds
+            out_pred.append(preds)
+        return out_pred
 
     def save(self, work_dir):
         # your code here
@@ -181,8 +187,12 @@ if __name__ == '__main__':
         model = MyModel.load(args.work_dir)
         myModel = MyModel()
         mapping = dict((c, i) for i, c in enumerate(MyModel.load_training_data(args.train_data)))
+        print('mapping 2:')
+        print(mapping)
         print('Loading test data from {}'.format(args.test_data))
         test_data = MyModel.load_test_data(args.test_data)
+        print('test data')
+        print(test_data)
         print('Making predictions')
         pred = myModel.run_pred(test_data)
         print('Writing predictions to {}'.format(args.test_output))
