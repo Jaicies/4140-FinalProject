@@ -5,6 +5,7 @@ import random
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 from tensorflow.keras.utils import to_categorical
 from keras.preprocessing.sequence import pad_sequences
 from keras.models import Sequential
@@ -118,7 +119,7 @@ class MyModel:
             # truncate sequences to a fixed length
             encoded = pad_sequences([encoded], maxlen=seq_length, truncating='pre')
             # predict character
-            yhat = myModel.model.predict_classes(encoded, verbose=0)
+            yhat = model.predict_classes(encoded, verbose=0)
             # reverse map integer to character
             out_char = ''
             for char, index in mapping.items():
@@ -133,8 +134,10 @@ class MyModel:
     def save(self, work_dir):
         # your code here
         # this particular model has nothing to save, but for demonstration purposes we will save a blank file
-        with open(os.path.join(work_dir, 'model.checkpoint'), 'wt') as f:
-            model.summary(print_fn=lambda x: f.write(x + '\n'))
+        #with open(os.path.join(work_dir, 'model.checkpoint'), 'wt') as f:
+         #   model.summary(print_fn=lambda x: f.write(x + '\n'))
+       
+         model.save(work_dir)
 
         
 
@@ -142,15 +145,16 @@ class MyModel:
     def load(cls, work_dir):
         # your code here
         # this particular model has nothing to load, but for demonstration purposes we will load a blank file
-        with open(os.path.join(work_dir, 'model.checkpoint')) as f:
-            dummy_save = f.read()
-        return MyModel()
+        #with open(os.path.join(work_dir, 'model.checkpoint')) as f:
+        #    dummy_save = f.read()
+        model = tf.keras.models.load_model(work_dir)
+        return model
 
 
 if __name__ == '__main__':
     parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
     parser.add_argument('mode', choices=('train', 'test'), help='what to run')
-    parser.add_argument('--work_dir', help='where to save', default='work')
+    parser.add_argument('--work_dir', help='where to save', default='work/model.checkpoint')
     parser.add_argument('--train_data', help='path to train data', default='example/train.txt')
     parser.add_argument('--test_data', help='path to test data', default='example/input.txt')
     parser.add_argument('--test_output', help='path to write test predictions', default='pred.txt')
@@ -174,7 +178,9 @@ if __name__ == '__main__':
         myModel.save(args.work_dir)
     elif args.mode == 'test':
         print('Loading model')
-        myModel = MyModel.load(args.work_dir)
+        model = MyModel.load(args.work_dir)
+        myModel = MyModel()
+        mapping = dict((c, i) for i, c in enumerate(MyModel.load_training_data(args.train_data)))
         print('Loading test data from {}'.format(args.test_data))
         test_data = MyModel.load_test_data(args.test_data)
         print('Making predictions')
