@@ -1,18 +1,25 @@
 #!/usr/bin/env python
 import os
 import string
+from pickletools import optimize
 import random
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 import numpy as np
-import pandas as pd
+#import pandas as pd
 import tensorflow as tf
-from tensorflow.keras.utils import to_categorical
-from keras.preprocessing.sequence import pad_sequences
+#from tensorflow.keras.utils import to_categorical
+#from keras.preprocessing.sequence import pad_sequences
+import keras.models
 from keras.models import Sequential
-from keras.layers import LSTM, Dense, GRU, Embedding
-from keras.callbacks import EarlyStopping, ModelCheckpoint
-import re
-from sklearn.model_selection import train_test_split
+from keras.layers import LSTM, Dense, Dropout
+#from keras.callbacks import EarlyStopping, ModelCheckpoint
+#import re
+#from sklearn.model_selection import train_test_split
+import sys
+from keras import optimizers
+from tensorflow.keras.optimizers import RMSprop
+from keras.callbacks import ModelCheckpoint
+from keras.models import load_model
 
 class MyModel:
     """
@@ -22,29 +29,11 @@ class MyModel:
     @classmethod
     def load_training_data(cls,fname):
 
-      #  data = []
-       # with open(fname) as f:
-        #    for line in f:
-         #       inp = line[:-1]  # the last character is a newline
-          #      data.append(inp)
-        text_file = open(fname)
-        
-        data = text_file.read()
-        text_file.close()
+        text_file = open(fname, 'r',encoding= 'utf-8').read()
+        raw_text = text_file.lower()
+        raw_text = ''.join(c for c in raw_text if not c.isdigit())
 
-        newString = data.lower()
-        newString = re.sub(r"'s\b","",newString)
-        # remove punctuations
-        newString = re.sub("[^a-zA-Z]", " ", newString) 
-        long_words=[]
-        # remove short words
-        for i in newString.split():
-            if len(i)>=3:                  
-                long_words.append(i)
-        data_new = (" ".join(long_words)).strip()
-        #print("new data: " + data_new)
-        return data_new
-
+        return raw_text
 
     @classmethod
     def load_test_data(cls, fname):
@@ -62,80 +51,87 @@ class MyModel:
             for p in preds:
                 f.write('{}\n'.format(p))
 
+
     def run_train(self, data, work_dir):
 
-        length = 30
-        sequences = list()
-        for i in range(length, len(data)):
-            # select sequence of tokens
-            seq = data[i-length:i+1]
-            # store
-            sequences.append(seq)
-        print('Total Sequences: %d' % len(sequences))
+       
         
         chars = sorted(list(set(data)))
-        mapping = dict((c, i) for i, c in enumerate(chars))
-
-        new_seq = list()
-        for line in sequences:
-            # integer encode line
-            encoded_seq = [mapping[char] for char in line]
-            # store
-            new_seq.append(encoded_seq)
-
-        vocab = len(mapping)
-        new_seq = np.array(new_seq)
-        # create X and y
-        X, y = new_seq[:,:-1], new_seq[:,-1]
-        # one hot encode y
-        y = to_categorical(y, num_classes=vocab)
-        # create train and validation sets
-        X_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.1, random_state=42)
-
-        #print('Train shape:', X_tr.shape, 'Val shape:', X_val.shape)
-                
-        model = Sequential()
-        model.add(Embedding(vocab, 50, input_length=30, trainable=True))
-        model.add(GRU(150, recurrent_dropout=0.1, dropout=0.1))
-        model.add(Dense(vocab, activation='softmax'))
-        #print(model.summary())
-
-        # compile the model
-        model.compile(loss='categorical_crossentropy', metrics=['acc'], optimizer='adam')
-        # fit the model
-        model.fit(X_tr, y_tr, epochs=3, verbose=2, validation_data=(X_val, y_val))
-
-        return mapping,model
+        char_to_int = dict((c, i) for i, c in enumerate(chars))
+        int_to_char = dict((i,c) for i, c in enumerate(chars))
+        n_chars = len(data) # total characters in entire text
+        n_vocab = len(chars) #every possible character
+        print('n vocab')
+        print(n_vocab)
         
+    
+        length = 60 # len of input 
+        step = 10 
+        sentences = [] # x values (sentences)
+        next_chars = [] # y values (character that follows sentence)
+        for i in range(0, n_chars - length, step):
+            sentences.append(data[i: i + length]) # sequence in
+            next_chars.append(data[i + length]) #sequence out
+        n_patterns = len(sentences)
+
+        x = np.zeros((len(sentences), length,n_vocab), dtype=np.bool)
+        y= np.zeros((len(sentences),n_vocab),dtype=np.bool)
+        for i, sentence in enumerate(sentences):
+            for t, char in enumerate(sentence):
+                x[i,t, char_to_int[char]] = 1
+            y[i, char_to_int[next_chars[i]]] = 1
+        
+        
+        model = Sequential()
+        model.add(LSTM(128, input_shape=(length,n_vocab)))
+        model.add(Dense(n_vocab, activation='softmax'))
+
+        optimizer = RMSprop(lr=0.01)
+        model.compile(loss='categorical_crossentropy',optimizer=optimizer)
+        model.summary()
+
+        checkpoint = ModelCheckpoint(work_dir, monitor='loss',verbose=1,save_best_only=True) #save best only might be prob
+        callbacks_list = [checkpoint]
+
+        history = model.fit(x,y,batch_size=128,epochs=5,callbacks=callbacks_list)
+
+        return model
+
 
     def run_pred(self, data):
+
+        chars = sorted(list(set(data)))
+        #n_vocab = len(chars)
         out_pred = []
 
-        for sentence in data:
-            seq_length = len(sentence)
-            in_text = sentence
-    # generate a fixed number of characters
-        for _ in range(3):
+        sentence = data[0]
+        next_char = ""
+        x_pred=np.zeros((1,60,48))
+        for t,char in enumerate(sentence):
+            x_pred[0,t,mapping[char]] = 1.
+        
+        preds=model.predict(x_pred,verbose=0)[0]
 
-            # encode the characters as integers
-            encoded = [mapping[char] for char in in_text]
-            # truncate sequences to a fixed length
-            encoded = pad_sequences([encoded], maxlen=seq_length, truncating='pre')
-            # predict character
-            
-            predict_x=model.predict(encoded) 
-            yhat=np.argmax(predict_x,verbose=0)
-            # reverse map integer to character
-            out_char = ''
-            for char, index in mapping.items():
-                if index == yhat:
-                    out_char = char
-                    break
-            # append to output
-            preds += char
-            # probably : in_text += out_char
-            out_pred.append(preds)
+        preds =np.array(preds).astype('float64')
+        preds = np.log(preds)
+        exp_preds = np.exp(preds)
+        preds = exp_preds/np.sum(exp_preds)
+        probas = np.random.multinomial(1,preds,1)
+
+        yhat=np.argmax(probas)
+        for char, index in mapping.items():
+            if index == yhat:
+                next_char = char
+                break
+        next_char += next_char
+        out_pred.append(next_char)
+        print('out_pred')
+        print(out_pred)
+
         return out_pred
+    
+
+
 
     def save(self, work_dir):
         # your code here
@@ -153,8 +149,9 @@ class MyModel:
         # this particular model has nothing to load, but for demonstration purposes we will load a blank file
         #with open(os.path.join(work_dir, 'model.checkpoint')) as f:
         #    dummy_save = f.read()
-        model = tf.keras.models.load_model(work_dir)
-        return model
+        
+        loaded_model = load_model(work_dir)
+        return loaded_model
 
 
 if __name__ == '__main__':
@@ -177,9 +174,7 @@ if __name__ == '__main__':
         print('Loading training data')
         train_data = MyModel.load_training_data(args.train_data)
         print('Training')
-        holder = myModel.run_train(train_data, args.work_dir)
-        mapping = holder[0]
-        model = holder[1]
+        model= myModel.run_train(train_data, args.work_dir)
         print('Saving model')
         myModel.save(args.work_dir)
     elif args.mode == 'test':
