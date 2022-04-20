@@ -40,19 +40,15 @@ class MyModel:
 
 
     def run_train(self, data, work_dir):
-        
+
         chars = sorted(list(set(data)))
         char_to_int = dict((c, i) for i, c in enumerate(chars))
-        print('mapping 1')
-        print(char_to_int)
         n_chars = len(data) # total characters in entire text
         n_vocab = len(chars) #every possible character
-        print('n vocab')
-        print(n_vocab)
         
     
-        length = 30 # len of input 
-        step = 5 # jump ever 5 characters
+        length = 60 # len of input 
+        step = 10 # jump ever 5 characters
         sentences = [] # x values (sentences)
         next_chars = [] # y values (character that follows sentence)
         for i in range(0, n_chars - length, step):
@@ -93,7 +89,7 @@ class MyModel:
         sentence = data # just doing first sentence for now
         
         predictions = ""
-        x_pred=np.zeros((1,30,n_vocab))
+        x_pred=np.zeros((1,60,n_vocab))
         for t,char in enumerate(sentence):
             x_pred[0,t,mapping[char]] = 1.
         
